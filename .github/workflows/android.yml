@@ -1,10 +1,12 @@
-name: Android CI
+name: Android Build & Release
 
 on:
   push:
-    branches: [ "dev" ]
+    branches:
+      - dev
   pull_request:
-    branches: [ "dev" ]
+    branches:
+      - dev
 
 jobs:
   build:
@@ -12,17 +14,74 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Set up Gradle Cache
-    - uses: burrunan/gradle-cache-action@v1
-    - uses: actions/checkout@v4
-    - name: set up JDK 11
-      uses: actions/setup-java@v4
-      with:
-        java-version: '11'
-        distribution: 'temurin'
-        cache: gradle
+    - name: Checkout code
+      uses: actions/checkout@v3
 
-    - name: Grant execute permission for gradlew
-      run: chmod +x gradlew
+    - name: Set up JDK 17
+      uses: actions/setup-java@v3
+      with:
+        distribution: 'temurin'
+        java-version: '17'
+
+    - name: Cache Gradle packages
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.gradle/caches
+          ~/.gradle/wrapper
+        key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+        restore-keys: |
+          ${{ runner.os }}-gradle
+
     - name: Build with Gradle
-      run: ./gradlew build
+      run: ./gradlew assembleRelease # Builds the release APK
+
+    - name: Run Unit Tests
+      run: ./gradlew test
+
+    - name: Run Android Lint
+      run: ./gradlew lint
+
+    # Upload the APK as an artifact in case you want to download it from the workflow run
+    - name: Upload APK Artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: release-apk
+        path: app/build/outputs/apk/release/*.apk # Path to the release APK
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: success()
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    # Set up the latest tag (or you could generate a new tag here if needed)
+    - name: Get the latest tag
+      id: get_tag
+      run: echo "::set-output name=tag::$(git describe --tags --abbrev=0 || echo v1.0.0)" # Create a default tag if none exists
+
+    # Create a GitHub release (or update an existing one)
+    - name: Create GitHub Release
+      id: create_release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ steps.get_tag.outputs.tag }}  # Tag for the release
+        release_name: "Release ${{ steps.get_tag.outputs.tag }}"  # Name of the release
+        draft: false
+        prerelease: false
+
+    # Upload the APK to the GitHub release
+    - name: Upload APK to Release
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: app/build/outputs/apk/release/*.apk # Path to your APK
+        asset_name: "DynamicWallpaper-release-${{ steps.get_tag.outputs.tag }}.apk" # APK file name in release
+        asset_content_type: application/vnd.android.package-archive
