@@ -7,8 +7,6 @@ android {
 
    release {
        storeFile file(RELEASE_STORE_FILE)
-       storePassword RELEASE_STORE_PASSWORD
-       keyPassword RELEASE_KEY_PASSWORD
 
        // Optional, specify signing versions used
        v1SigningEnabled true
